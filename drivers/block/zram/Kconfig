@@ -2,7 +2,7 @@
 config ZRAM
 	tristate "Compressed RAM block device support"
 	depends on BLOCK && SYSFS && ZSMALLOC && CRYPTO
-	select CRYPTO_LZO
+	select CRYPTO_LZ4
 	default n
 	help
 	  Creates virtual block devices called /dev/zramX (X = 0, 1, ...).
@@ -40,9 +40,9 @@ config ZRAM_WRITEBACK
 	 /sys/block/zramX/backing_dev.
 
 	 With /sys/block/zramX/{idle,writeback}, application could ask
-	 idle page's writeback to the backing device to save in memory.
+	 idle pages writeback to the backing device to save in memory.
 
-	 See Documentation/blockdev/zram.txt for more information.
+	 See Documentation/admin-guide/blockdev/zram.rst for more information.
 
 config ZRAM_MEMORY_TRACKING
 	bool "Track zRam block status"
@@ -52,4 +52,28 @@ config ZRAM_MEMORY_TRACKING
 	  of zRAM. Admin could see the information via
 	  /sys/kernel/debug/zram/zramX/block_state.
 
-	  See Documentation/blockdev/zram.txt for more information.
+	  See Documentation/admin-guide/blockdev/zram.rst for more information.
+
+config ZRAM_DEFAULT_COMP_ALGORITHM
+	string "Default ZRAM compression algorithm"
+	default "lz4"
+
+config ZRAM_SIZE_OVERRIDE_ENABLE
+    bool "Enable overriding zram size from kernel command line"
+    default n
+    help
+      Say yes here to allow specifying the zram disk size directly
+      via the 'zram.size' kernel command line parameter, multiplied
+      by a factor set in CONFIG_ZRAM_SIZE_OVERRIDE. If disabled,
+      the size will be determined by other kernel mechanisms.
+
+config ZRAM_SIZE_OVERRIDE
+    int "zram size multiplier (in GB)"
+    range 1 8
+    default 4
+    depends on ZRAM_SIZE_OVERRIDE_ENABLE
+    help
+      Specify the multiplier (in Gigabytes) to use when overriding
+      the zram disk size via the 'zram.size' kernel command line
+      parameter. This option is only effective if
+      CONFIG_ZRAM_SIZE_OVERRIDE_ENABLE is enabled.
