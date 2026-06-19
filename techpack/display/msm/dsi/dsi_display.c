@@ -40,6 +40,8 @@ static struct dsi_display_boot_param boot_displays[MAX_DSI_ACTIVE_DISPLAY] = {
 	{.boot_param = dsi_display_secondary},
 };
 
+#define DSI_MOT_DUMMY_QHD_PANEL "qcom,mdss_dsi_mot_dummy_qhd_video"
+
 static const struct of_device_id dsi_display_dt_match[] = {
 	{.compatible = "qcom,dsi-display"},
 	{}
@@ -2536,8 +2538,15 @@ static int dsi_display_parse_boot_display_selection(void)
 
 		boot_displays[i].name[j] = '\0';
 
+		DSI_ERR("boot display[%d]: raw='%s' parsed='%s'\n",
+			i, boot_displays[i].boot_param, boot_displays[i].name);
+
 		boot_displays[i].boot_disp_en = true;
 	}
+
+	for (i = 0; i < MAX_DSI_ACTIVE_DISPLAY; i++)
+		DSI_ERR("final boot display[%d]: name='%s' enabled=%d\n",
+			i, boot_displays[i].name, boot_displays[i].boot_disp_en);
 
 	return 0;
 }
@@ -5779,6 +5788,7 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 	struct device_node *node = NULL, *panel_node = NULL, *mdp_node = NULL;
 	int rc = 0, index = DSI_PRIMARY;
 	bool firm_req = false;
+	bool dummy_bootarg = false;
 	struct dsi_display_boot_param *boot_disp;
 
 	if (!pdev || !pdev->dev.of_node) {
@@ -5816,23 +5826,43 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 	boot_disp = &boot_displays[index];
 	node = pdev->dev.of_node;
 	if (boot_disp->boot_disp_en) {
-		mdp_node = of_parse_phandle(node, "qcom,mdp", 0);
-		if (!mdp_node) {
-			DSI_ERR("mdp_node not found\n");
-			rc = -ENODEV;
-			goto end;
-		}
+		DSI_ERR("cmdline boot display[%d]: '%s'\n",
+			index, boot_disp->name);
 
-		/* The panel name should be same as UEFI name index */
-		panel_node = of_find_node_by_name(mdp_node, boot_disp->name);
-		if (!panel_node)
-			DSI_WARN("panel_node %s not found\n", boot_disp->name);
+		if (!strcmp(boot_disp->name, DSI_MOT_DUMMY_QHD_PANEL)) {
+			DSI_WARN("dummy DSI panel requested from cmdline, using DT default panel\n");
+			dummy_bootarg = true;
+			boot_disp->boot_disp_en = false;
+			boot_disp->name[0] = '\0';
+
+			panel_node = of_parse_phandle(node,
+					"qcom,dsi-default-panel", 0);
+			if (!panel_node)
+				DSI_WARN("default panel not found after dummy fallback\n");
+		} else {
+			mdp_node = of_parse_phandle(node, "qcom,mdp", 0);
+			if (!mdp_node) {
+				DSI_ERR("mdp_node not found\n");
+				rc = -ENODEV;
+				goto end;
+			}
+
+			/* The panel name should be same as UEFI name index */
+			panel_node = of_find_node_by_name(mdp_node, boot_disp->name);
+			if (!panel_node)
+				DSI_WARN("panel_node %s not found\n", boot_disp->name);
+		}
 	} else {
 		panel_node = of_parse_phandle(node,
 				"qcom,dsi-default-panel", 0);
 		if (!panel_node)
 			DSI_WARN("default panel not found\n");
 	}
+
+	if (panel_node)
+		DSI_ERR("selected panel node: %s\n", panel_node->name);
+	else
+		DSI_ERR("selected panel node is NULL\n");
 
 	boot_disp->node = pdev->dev.of_node;
 	boot_disp->disp = display;
@@ -5846,7 +5876,8 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, display);
 
 	/* initialize display in firmware callback */
-	if (!boot_disp->boot_disp_en && IS_ENABLED(CONFIG_DSI_PARSER)) {
+	if (!boot_disp->boot_disp_en && IS_ENABLED(CONFIG_DSI_PARSER) &&
+			!dummy_bootarg) {
 		if (!strcmp(display->display_type, "primary"))
 			firm_req = !request_firmware_nowait(
 				THIS_MODULE, 1, "dsi_prop",
