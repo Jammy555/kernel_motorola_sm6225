@@ -171,7 +171,7 @@ static void avc_dump_av(struct audit_buffer *ab, u16 tclass, u32 av)
  * @tsid: target security identifier
  * @tclass: target security class
  */
-static void avc_dump_query(struct audit_buffer *ab, struct selinux_state *state,
+static void __maybe_unused avc_dump_query(struct audit_buffer *ab, struct selinux_state *state,
 			   u32 ssid, u32 tsid, u16 tclass)
 {
 	int rc;
@@ -799,7 +799,6 @@ bypass_orig_flow:
 
 	if (sad->denied)
 		audit_log_format(ab, " permissive=%u", sad->result ? 0 : 1);
-	}
 }
 
 /* This is the slow part of avc audit with big stack footprint */

@@ -914,12 +914,12 @@ static int show_smap(struct seq_file *m, void *v)
 			SEQ_PUT_DEC(" kB\nKernelPageSize: ", vma_kernel_pagesize(vma));
 			SEQ_PUT_DEC(" kB\nMMUPageSize:    ", vma_mmu_pagesize(vma));
 			seq_puts(m, " kB\n");
-			__show_smap(m, &mss, false);
+			__show_smap(m, &mss);
 			if (arch_pkeys_enabled())
 					seq_printf(m, "ProtectionKey:  %8u\n", vma_pkey(vma));
 			seq_puts(m, "VmFlags: mr mw me");
 			seq_putc(m, '\n');
-			return;
+			return 0;
 		}
 	}
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
