@@ -8,9 +8,14 @@ kernelsu-objs += hook/hook_manager.o
 kernelsu-objs += hook/lsm_hooks.o
 kernelsu-objs += hook/setuid_hook.o
 kernelsu-objs += extras.o
-kernelsu-objs += tiny_sulog.o
+kernelsu-objs += feature/adb_root.o
+kernelsu-objs += feature/selinux_hide.o
+kernelsu-objs += feature/sulog.o
+kernelsu-objs += sulog/event.o
+kernelsu-objs += sulog/fd.o
 
 kernelsu-objs += infra/file_wrapper.o
+kernelsu-objs += infra/event_queue.o
 kernelsu-objs += infra/seccomp_cache.o
 kernelsu-objs += infra/su_mount_ns.o
 
@@ -63,14 +68,14 @@ obj-$(CONFIG_KSU) += kernelsu.o
 LPATH := /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin
 MDIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-KSU_GIT_VERSION := 3038
-KSU_GIT_TAG := v3.3.0
+KSU_GIT_VERSION := 3294
+KSU_GIT_TAG := v3.4.0
 KSU_GIT_VERSION_VALID := 1
 
 # Calculate version if git version is available
 ifdef KSU_GIT_VERSION_VALID
 # ksu_version: major * 30000 + git version for historical reasons
-$(eval KSU_VERSION=$(shell expr 30000 + $(KSU_GIT_VERSION) + 150))
+$(eval KSU_VERSION=$(shell expr 30000 + $(KSU_GIT_VERSION) + 200))
 $(info -- KernelSU-Next version: $(KSU_VERSION))
 ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
 else

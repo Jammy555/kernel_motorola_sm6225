@@ -17,6 +17,7 @@
 #include "selinux/selinux.h"
 #include "compat/kernel_compat.h"
 #include "runtime/ksud.h"
+#include "feature/adb_root.h"
 
 // Tracepoint registration count management
 // == 1: just us
@@ -335,6 +336,7 @@ static void ksu_sys_enter_handler(void *data, struct pt_regs *regs, long id)
 #else
 			if (id == __NR_execve) {
 #endif
+				ksu_adb_root_handle_execve(regs);
 				const char __user **filename_user =
 					(const char __user **)&PT_REGS_PARM1(regs);
 				if (current->pid != 1 && is_init(current_cred())) {

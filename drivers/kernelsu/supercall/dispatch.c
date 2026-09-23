@@ -21,18 +21,23 @@
 #include "policy/app_profile.h"
 #include "supercall/supercall.h"
 
-#include "tiny_sulog.h"
+#include "sulog/event.h"
+#include "sulog/fd.h"
 
 static int do_grant_root(void __user *arg)
 {
-	// we already check uid above on allowed_for_su()
+    int ret;
+    __u32 audit_uid = current_uid().val;
+    __u32 audit_euid = current_euid().val;
 
-    write_sulog('i'); // log ioctl escalation
+    // we already check uid above on allowed_for_su()
 
-    pr_info("allow root for: %d\n", current_uid().val);
-    escape_with_root_profile();
+    pr_info("allow root for: %d\n", audit_uid);
+    ret = escape_with_root_profile();
+    ksu_sulog_emit_grant_root(ret, audit_uid, audit_euid, GFP_KERNEL);
+    ksu_compat_sulog('i');
 
-	return 0;
+    return ret;
 }
 
 static int do_get_info(void __user *arg)
@@ -763,6 +768,23 @@ out:
 	return err;
 }
 
+static int do_get_sulog_fd(void __user *arg)
+{
+    struct ksu_get_sulog_fd_cmd cmd;
+
+    if (copy_from_user(&cmd, arg, sizeof(cmd))) {
+        pr_err("get_sulog_fd: copy_from_user failed\n");
+        return -EFAULT;
+    }
+
+    if (cmd.flags) {
+        pr_err("get_sulog_fd: unsupported flags 0x%x\n", cmd.flags);
+        return -EINVAL;
+    }
+
+    return ksu_install_sulog_fd();
+}
+
 // IOCTL handlers mapping table
 // clang-format off
 static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
@@ -896,6 +918,12 @@ static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
         .cmd = KSU_IOCTL_SET_INIT_PGRP,
         .name = "SET_INIT_PGRP",
         .handler = do_set_init_pgrp,
+        .perm_check = only_root
+    },
+    {
+        .cmd = KSU_IOCTL_GET_SULOG_FD,
+        .name = "GET_SULOG_FD",
+        .handler = do_get_sulog_fd,
         .perm_check = only_root
     },
     {
