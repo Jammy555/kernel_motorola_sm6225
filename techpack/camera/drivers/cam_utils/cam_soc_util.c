@@ -504,8 +504,9 @@ int cam_soc_util_set_src_clk_rate(struct cam_hw_soc_info *soc_info,
 
 int cam_soc_util_clk_put(struct clk **clk)
 {
-	if (!(*clk)) {
+	if (IS_ERR_OR_NULL(*clk)) {
 		CAM_ERR(CAM_UTIL, "Invalid params clk");
+		*clk = NULL;
 		return -EINVAL;
 	}
 

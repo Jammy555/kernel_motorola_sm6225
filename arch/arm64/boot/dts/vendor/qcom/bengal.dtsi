@@ -842,7 +842,7 @@
 		compatible = "qcom,mcd";
 		qcom,ce-hw-instance = <0>;
 		qcom,ce-device = <0>;
-		interrupts = <0 248 0>;
+		interrupts = <0 248 IRQ_TYPE_EDGE_RISING>;
 		interrupt-names = "mcd_irq";
 		clocks = <&rpmcc QSEECOM_CE1_CLK>,
 			<&rpmcc QSEECOM_CE1_CLK>,
