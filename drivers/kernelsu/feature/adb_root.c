@@ -36,7 +36,7 @@ static long is_exec_adbd(struct pt_regs *regs)
         return ret;
     }
 
-    if (ret < kAdbdLen || memcmp(buf + ret - kAdbdLen, kAdbd, kAdbdLen + 1) != 0) {
+    if (ret < kAdbdLen || ret >= sizeof(buf) || memcmp(buf + ret - kAdbdLen, kAdbd, kAdbdLen + 1) != 0) {
         return 0;
     }
 

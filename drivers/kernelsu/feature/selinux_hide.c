@@ -135,12 +135,15 @@ static int __nocfi my_sel_open_handle_status(struct inode *inode, struct file *f
 		   ksu_selinux_hide_is_enabled)) {
 		struct page *data = READ_ONCE(fake_status);
 		if (data) {
-			filp->private_data = page_address(data);
+			filp->private_data = data;
 			return 0;
 		}
 	}
 
-	return orig_sel_open_handle_status(inode, filp);
+	if (orig_sel_open_handle_status && orig_sel_open_handle_status != my_sel_open_handle_status)
+		return orig_sel_open_handle_status(inode, filp);
+
+	return -EACCES;
 }
 
 #define FORCE_VOLATILE(x) *(volatile typeof(x) *)&(x)
@@ -199,7 +202,7 @@ out:
 static void hook_selinux_status_open(void)
 {
 	if (orig_sel_open_handle_status)
-	return;
+		return;
 
 	struct file_operations *ops = NULL;
 	if (resolve_fops("/sys/fs/selinux/status", &ops)) {
@@ -211,7 +214,10 @@ static void hook_selinux_status_open(void)
 		pr_err("ksu_selinux_hide: sel_handle_status_ops->open is NULL\n");
 		return;
 	}
-	
+
+	if (ops->open == my_sel_open_handle_status)
+		return;
+
 	orig_sel_open_handle_status = ops->open;
 	patch_fops_open(ops, my_sel_open_handle_status);
 	pr_info("ksu_selinux_hide: hooked sel_handle_status_ops->open\n");

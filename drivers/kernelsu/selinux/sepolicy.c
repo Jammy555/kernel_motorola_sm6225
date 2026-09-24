@@ -91,7 +91,7 @@ static bool add_typeattribute(struct policydb *db, const char *type,
 #endif
 
 #define avtab_for_each(avtab, cur)                                             \
-    ksu_hash_for_each(avtab.htable, avtab.nslot, cur);
+    ksu_hash_for_each(avtab.htable, avtab.nslot, cur)
 
 static struct avtab_node *get_avtab_node(struct policydb *db,
                                          struct avtab_key *key,
@@ -573,13 +573,24 @@ static bool add_filename_trans(struct policydb *db, const char *s,
 		struct filename_trans *new_key =
 			(struct filename_trans *)kzalloc(sizeof(*new_key), GFP_KERNEL);
 		if (!new_key) {
+			kfree(trans);
 			pr_err("add_filename_trans: Failed to alloc new_key\n");
 			return false;
 		}
 		*new_key = key;
 		new_key->name = kstrdup(key.name, GFP_KERNEL);
+		if (!new_key->name) {
+			kfree(new_key);
+			kfree(trans);
+			return false;
+		}
 		trans->otype = def->value;
-		hashtab_insert(db->filename_trans, new_key, trans);
+		if (hashtab_insert(db->filename_trans, new_key, trans)) {
+			kfree(new_key->name);
+			kfree(new_key);
+			kfree(trans);
+			return false;
+		}
 	}
 
 	return ebitmap_set_bit(&db->filename_trans_ttypes, src->value - 1, 1) == 0;
