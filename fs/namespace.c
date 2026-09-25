@@ -129,7 +129,7 @@ static void mnt_free_id(struct mount *mnt)
 		return;
 	}
 
-	if (mnt->mnt.mnt_flags & VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT) {
+	if (mnt->mnt.mnt_flags & SUSFS_MNT_FLAGS_KSU_UNSHARED) {
 		return;
 	}
 
@@ -1237,7 +1237,7 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 	//   mounted by ksu process
 		if (susfs_is_current_ksu_domain()) {
 			// - If it is unsharing, we re-use the old->mnt_id assign it for mnt->mnt_id directly
-			//   without going thru ida, but we need to set a bit VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT
+			//   without going thru ida, but we need to set a bit SUSFS_MNT_FLAGS_KSU_UNSHARED
 			//   on mnt->mnt.mnt_flags below, otherwise we find no other ways to identify if this
 			//   mnt->mnt_id is assigned without ida when it is being freed in mnt_free_id().
 			if (flag & CL_COPY_MNT_NS) {
@@ -1309,7 +1309,7 @@ bypass_orig_flow:
 
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 	if (unlikely(is_mnt_ksu_unshared)) {
-		mnt->mnt.mnt_flags |= VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT;
+		mnt->mnt.mnt_flags |= SUSFS_MNT_FLAGS_KSU_UNSHARED;
 	}
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 

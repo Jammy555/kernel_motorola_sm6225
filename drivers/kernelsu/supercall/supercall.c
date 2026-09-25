@@ -85,8 +85,8 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
 #endif
 
 #ifdef CONFIG_KSU_SUSFS
-    // If magic2 is susfs and current process is root
-    if (magic2 == SUSFS_MAGIC && current_uid().val == 0) {
+    // If magic2 is susfs and current process has CAP_SYS_ADMIN (no-audit to avoid AVC log leak)
+    if (magic2 == SUSFS_MAGIC && has_capability_noaudit(current, CAP_SYS_ADMIN)) {
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
         if (cmd == CMD_SUSFS_ADD_SUS_PATH) {
             susfs_add_sus_path(arg);
@@ -147,6 +147,12 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
             return 0;
         }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
+#ifdef CONFIG_KSU_SUSFS_SUS_MEMFD
+        if (cmd == CMD_SUSFS_ADD_SUS_MEMFD) {
+            susfs_add_sus_memfd(arg);
+            return 0;
+        }
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MEMFD
         if (cmd == CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING) {
             susfs_set_avc_log_spoofing(arg);
             return 0;
@@ -245,13 +251,13 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
 		uint64_t u_pptr = 0;
 		uint64_t u_ptr = 0;
 
-		pr_info("sys_reboot: ppptr: 0x%lx \n", ppptr);
+		pr_info("sys_reboot: ppptr: 0x%px \n", ppptr);
 
 		// arg here is ***, dereference to pull out **
 		if (copy_from_user(&u_pptr, (void __user *)*ppptr, sizeof(u_pptr)))
 			return 0;
 
-		pr_info("sys_reboot: u_pptr: 0x%lx \n", u_pptr);
+		pr_info("sys_reboot: u_pptr: 0x%llx \n", (unsigned long long)u_pptr);
 
 		// now we got the __user **
 		// we cannot dereference this as this is __user
@@ -259,7 +265,7 @@ int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
 		if (copy_from_user(&u_ptr, (void __user *)u_pptr, sizeof(u_ptr)))
 			return 0;
 
-		pr_info("sys_reboot: u_ptr: 0x%lx \n", u_ptr);
+		pr_info("sys_reboot: u_ptr: 0x%llx \n", (unsigned long long)u_ptr);
 
 		// for release
 		if (strncpy_from_user(release_buf, (char __user *)u_ptr, sizeof(release_buf)) < 0)

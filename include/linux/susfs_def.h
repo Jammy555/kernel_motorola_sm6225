@@ -50,6 +50,14 @@
 #define DEFAULT_KSU_MNT_GROUP_ID 200000 /* used by mount->mnt_group_id */
 #define VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT 0x80000000 /* used for mounts that are unshared by ksu process */
 
+/* Enum for susfs mount ID bases - avoids magic number collisions */
+enum susfs_mnt_id_base {
+	SUSFS_MNT_ID_BASE_KSU		= 2000000000,
+	SUSFS_MNT_ID_BASE_KSU_UNSHARE	= 1000000,
+	SUSFS_MNT_GROUP_ID_BASE_KSU	= 200000,
+	SUSFS_MNT_FLAGS_KSU_UNSHARED	= 0x80000000,
+};
+
 /*
  * mount->mnt.susfs_mnt_id_backup => storing original mount's mnt_id
  * inode->i_state => A 'unsigned long' type storing flag 'AS_FLAGS_', bit 1 to 31 is not usable since 6.12
@@ -67,6 +75,7 @@
 #define AS_FLAGS_ANDROID_DATA_ROOT_DIR 37
 #define AS_FLAGS_SDCARD_ROOT_DIR 38
 #define AS_FLAGS_SUS_MAP 39
+#define AS_FLAGS_SUS_MEMFD 40
 #define BIT_SUS_PATH BIT(33)
 #define BIT_SUS_MOUNT BIT(34)
 #define BIT_SUS_KSTAT BIT(35)
@@ -75,6 +84,15 @@
 #define BIT_ANDROID_SDCARD_ROOT_DIR BIT(38)
 #define BIT_SUS_MAPS BIT(39)
 
+/* Build-time checks for i_state bit allocation:
+ * - Kernel 6.12+ reserves bits 1-31 for internal use
+ * - We use bits 33-39 which are safe on 4.19 but may conflict on future kernels
+ * - BITS_PER_LONG is 64 on 64-bit, 32 on 32-bit
+ * Check is performed in susfs_init() to avoid file-scope BUILD_BUG_ON issues
+ */
+#if BITS_PER_LONG != 64
+#error "susfs: 32-bit kernels not supported (i_state bit allocation requires 64-bit)"
+#endif
 #define ND_STATE_LOOKUP_LAST 32
 #define ND_STATE_OPEN_LAST 64
 #define ND_STATE_LAST_SDCARD_SUS_PATH 128
@@ -173,7 +191,8 @@ static inline bool susfs_is_current_proc_umounted_app(void) {
 
 #define SUSFS_IS_INODE_SUS_MAP(inode) \
 		inode && \
-		unlikely(test_bit(AS_FLAGS_SUS_MAP, &inode->i_state)) && \
+		unlikely(test_bit(AS_FLAGS_SUS_MAP, &inode->i_state) || \
+			 test_bit(AS_FLAGS_SUS_MEMFD, &inode->i_state)) && \
 		susfs_is_current_proc_umounted_app()
 
 #define SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(inode) \

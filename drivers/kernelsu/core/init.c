@@ -162,6 +162,7 @@ int __init kernelsu_init(void)
 
 #ifdef CONFIG_KSU_SUSFS
 		susfs_init();
+		susfs_selinux_callback_init();
 #endif
 
 		ksu_ksud_init();

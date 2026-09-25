@@ -37,10 +37,18 @@ extern struct cred *ksu_cred;
 extern int susfs_get_non_sus_mnt_id_from_mnt(struct mount *orig_mnt);
 extern struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(struct vfsmount *vfsmnt);
 
+/* Configurable sdcard paths (can be overridden via kernel cmdline) */
+static char *susfs_sdcard_media_path = "/data/media/0";
+module_param(susfs_sdcard_media_path, charp, 0);
+MODULE_PARM_DESC(susfs_sdcard_media_path, "Path to emulated storage media root (default: /data/media/0)");
+
+static char *susfs_sdcard_android_path = "/data/media/0/Android";
+module_param(susfs_sdcard_android_path, charp, 0);
+MODULE_PARM_DESC(susfs_sdcard_android_path, "Path to Android directory on sdcard (default: /data/media/0/Android)");
 #ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
-DEFINE_STATIC_KEY_TRUE(susfs_is_log_enabled);
-#define SUSFS_LOGI(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_info("susfs:[%u][%d][%s] " fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
-#define SUSFS_LOGE(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
+DEFINE_STATIC_KEY_FALSE(susfs_is_log_enabled);
+#define SUSFS_LOGI(fmt, ...) if (static_branch_unlikely(&susfs_is_log_enabled)) pr_info("susfs:[%u][%d][%s] " fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
+#define SUSFS_LOGE(fmt, ...) if (static_branch_unlikely(&susfs_is_log_enabled)) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
 #else
 #define SUSFS_LOGI(fmt, ...) 
 #define SUSFS_LOGE(fmt, ...) 
@@ -50,7 +58,12 @@ DEFINE_STATIC_KEY_TRUE(susfs_is_log_enabled);
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 DEFINE_STATIC_SRCU(susfs_srcu_sus_path_loop);
 static DEFINE_MUTEX(susfs_mutex_lock_sus_path);
+static struct lock_class_key susfs_lock_class_sus_path;
 static LIST_HEAD(LH_SUS_PATH_LOOP);
+
+/* sus_kstat */
+static DEFINE_MUTEX(susfs_mutex_lock_sus_kstat);
+static struct lock_class_key susfs_lock_class_sus_kstat;
 
 const struct qstr susfs_fake_qstr_name = QSTR_INIT("..5.u.S", 7); // used to re-test the dcache lookup, make sure you don't have file named like this!!
 
@@ -152,8 +165,14 @@ void susfs_run_sus_path_loop(void) {
 	struct path path;
 	struct inode *inode;
 	struct fuse_inode *fi = NULL;
-	const struct cred *saved = override_creds(ksu_cred);
-	int srcu_idx = srcu_read_lock(&susfs_srcu_sus_path_loop);
+	const struct cred *saved;
+	int srcu_idx;
+
+	if (!ksu_cred)
+		return;
+
+	saved = override_creds(ksu_cred);
+	srcu_idx = srcu_read_lock(&susfs_srcu_sus_path_loop);
 
 	list_for_each_entry_rcu(cursor, &LH_SUS_PATH_LOOP, list) {
 		if (!kern_path(cursor->target_pathname, 0, &path))
@@ -171,14 +190,19 @@ void susfs_run_sus_path_loop(void) {
 					path_put(&path);
 					continue;
 				}
-				set_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state);
-				set_bit(AS_FLAGS_SUS_PATH, &inode->i_state);
-				SUSFS_LOGI("re-flag AS_FLAGS_SUS_PATH on path '%s', fi->inode.i_ino: '%lu', fi->inode.i_state: 0x%lx\n",
-						cursor->target_pathname, fi->inode.i_ino, fi->inode.i_state);
+				if (!test_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state) ||
+				    !test_bit(AS_FLAGS_SUS_PATH, &inode->i_state)) {
+					set_bit(AS_FLAGS_SUS_PATH, &fi->inode.i_state);
+					set_bit(AS_FLAGS_SUS_PATH, &inode->i_state);
+					SUSFS_LOGI("re-flag AS_FLAGS_SUS_PATH on path '%s', fi->inode.i_ino: '%lu', fi->inode.i_state: 0x%lx\n",
+							cursor->target_pathname, fi->inode.i_ino, fi->inode.i_state);
+				}
 			} else {
-				set_bit(AS_FLAGS_SUS_PATH, &inode->i_state);
-				SUSFS_LOGI("re-flag AS_FLAGS_SUS_PATH on path '%s', inode->i_ino: '%lu', inode->i_state: 0x%lx\n",
-						cursor->target_pathname, inode->i_ino, inode->i_state);
+				if (!test_bit(AS_FLAGS_SUS_PATH, &inode->i_state)) {
+					set_bit(AS_FLAGS_SUS_PATH, &inode->i_state);
+					SUSFS_LOGI("re-flag AS_FLAGS_SUS_PATH on path '%s', inode->i_ino: '%lu', inode->i_state: 0x%lx\n",
+							cursor->target_pathname, inode->i_ino, inode->i_state);
+				}
 			}
 			path_put(&path);
 		}
@@ -284,7 +308,6 @@ out_copy_to_user:
 
 /* sus_kstat */
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-static DEFINE_MUTEX(susfs_mutex_lock_sus_kstat);
 static DEFINE_HASHTABLE(SUS_KSTAT_HLIST, 14);
 
 static int statfs_by_dentry(struct dentry *dentry, struct kstatfs *buf)
@@ -304,7 +327,7 @@ static int statfs_by_dentry(struct dentry *dentry, struct kstatfs *buf)
 	return retval;
 }
 
-static int susfs_mark_inode_sus_kstat(char *target_pathname, struct st_susfs_sus_kstat_hlist *new_entry, bool is_update) {
+static int susfs_mark_inode_sus_kstat(const char *target_pathname, struct st_susfs_sus_kstat_hlist *new_entry, bool is_update) {
 	struct path path;
 	struct inode *inode = NULL;
 	struct fuse_inode *fi = NULL;
@@ -673,6 +696,9 @@ int susfs_sus_kstat_spoof_vfs_statfs(struct inode *inode, struct kstatfs *buf, b
 	struct st_susfs_sus_kstat_hlist *entry = NULL;
 	struct inode *target_inode = inode;
 
+	if (!inode)
+		return -EINVAL;
+
 	if (*is_fuse)
 		target_inode = &get_fuse_inode(inode)->inode;
 
@@ -879,9 +905,16 @@ void susfs_spoof_cmdline_or_bootconfig(struct seq_file *m) {
 }
 #endif
 
+/* sus_memfd */
+#ifdef CONFIG_KSU_SUSFS_SUS_MEMFD
+static DEFINE_SPINLOCK(susfs_spin_lock_sus_memfd);
+static LIST_HEAD(LH_SUS_MEMFD);
+#endif
+
 /* open_redirect */
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 static DEFINE_MUTEX(susfs_mutex_lock_open_redirect);
+static struct lock_class_key susfs_lock_class_open_redirect;
 static DEFINE_HASHTABLE(OPEN_REDIRECT_HLIST, 14);
 DEFINE_SRCU(susfs_srcu_open_redirect);
 
@@ -1034,6 +1067,7 @@ void susfs_add_open_redirect(void __user **user_info) {
 	mutex_unlock(&susfs_mutex_lock_open_redirect);
 	synchronize_srcu(&susfs_srcu_open_redirect);
 	info.err = 0;
+	goto out_path_put_target_path;
 
 out_path_put_target_path:
 	path_put(&target_path);
@@ -1057,6 +1091,7 @@ struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode) {
 		{
 			switch(entry->info.uid_scheme) {
 				case UID_NON_APP_PROC:
+				/* Redirect for non-app processes (system UIDs < 10000) */
 					if (current_uid().val % 100000 < 10000)
 						break;
 					goto out_srcu_read_unlock;
@@ -1358,7 +1393,7 @@ out_copy_to_user:
 
 /* kthread for checking if /sdcard/Android is accessible via fsnoitfy */
 /* code is straightly borrowed from KernelSU's pkg_observer.c */
-#define SDCARD_ANDROID_PATH "/data/media/0/Android"
+/* Paths are now configurable via module parameters susfs_sdcard_media_path and susfs_sdcard_android_path */
 DEFINE_STATIC_KEY_TRUE(susfs_is_sdcard_android_data_not_decrypted);
 bool susfs_is_sdcard_android_data_decrypted = false;
 
@@ -1372,7 +1407,7 @@ struct watch_dir {
 
 static struct fsnotify_group *g;
 
-static struct watch_dir g_watch = { .path = "/data/media/0", // we choose the underlying f2fs /data/media/0 instead of the FUSE /sdcard
+static struct watch_dir g_watch = { .path = NULL, // will be set to susfs_sdcard_media_path in susfs_sdcard_monitor_fn
 									.mask = (FS_EVENT_ON_CHILD | FS_ISDIR | FS_OPEN_PERM) };
 
 static int add_mark_on_inode(struct inode *inode, u32 mask,
@@ -1448,7 +1483,7 @@ static SUSFS_DECL_FSNOTIFY_OPS(susfs_handle_sdcard_inode_event)
 	if (test_and_set_bit(0, &sdcard_cleanup_scheduled))
 		return 0;
 
-	SUSFS_LOGI("'%s' detected, mask: 0x%x\n", SDCARD_ANDROID_PATH, mask);
+	SUSFS_LOGI("'%s' detected, mask: 0x%x\n", susfs_sdcard_android_path, mask);
 	SUSFS_LOGI("deferring cleanup for 5 seconds\n");
 	queue_delayed_work(system_unbound_wq, &sdcard_cleanup_dwork, 5 * HZ);
 	return 0;
@@ -1521,7 +1556,7 @@ static int susfs_sdcard_monitor_fn(void *data)
 	}
 
 	SUSFS_LOGI("start monitoring path '%s' using fsnotify\n",
-				SDCARD_ANDROID_PATH);
+				susfs_sdcard_android_path);
 
 	INIT_DELAYED_WORK(&sdcard_cleanup_dwork, susfs_sdcard_cleanup_fn);
 
@@ -1534,6 +1569,7 @@ static int susfs_sdcard_monitor_fn(void *data)
 		return PTR_ERR(g);
 	}
 
+	g_watch.path = susfs_sdcard_media_path;
 	ret = watch_one_dir(&g_watch);
 
 	SUSFS_LOGI("ret: %d\n", ret);
@@ -1605,9 +1641,81 @@ void susfs_try_umount(uid_t uid)
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
 
-/* susfs_init */
+/* sus_memfd */
+#ifdef CONFIG_KSU_SUSFS_SUS_MEMFD
+int susfs_add_sus_memfd(void __user **user_info) {
+	struct st_susfs_sus_memfd info = {0};
+	struct st_susfs_sus_memfd_list *new_entry;
+	unsigned long flags;
+
+	if (copy_from_user(&info, (struct st_susfs_sus_memfd __user *)*user_info, sizeof(info))) {
+		info.err = -EFAULT;
+		goto out_copy_to_user;
+	}
+
+	if (*info.target_pathname == '\0') {
+		info.err = -EINVAL;
+		goto out_copy_to_user;
+	}
+
+	new_entry = kzalloc(sizeof(*new_entry), GFP_KERNEL);
+	if (!new_entry) {
+		info.err = -ENOMEM;
+		goto out_copy_to_user;
+	}
+
+	strscpy(new_entry->info.target_pathname, info.target_pathname, SUSFS_MAX_LEN_PATHNAME);
+
+	spin_lock_irqsave(&susfs_spin_lock_sus_memfd, flags);
+	list_add_tail_rcu(&new_entry->list, &LH_SUS_MEMFD);
+	spin_unlock_irqrestore(&susfs_spin_lock_sus_memfd, flags);
+
+	info.err = 0;
+	SUSFS_LOGI("sus_memfd added: '%s'\n", new_entry->info.target_pathname);
+
+out_copy_to_user:
+	if (copy_to_user(&((struct st_susfs_sus_memfd __user *)*user_info)->err, &info.err, sizeof(info.err))) {
+		info.err = -EFAULT;
+	}
+	return info.err;
+}
+
+int susfs_sus_memfd(char *memfd_name) {
+	struct st_susfs_sus_memfd_list *entry;
+	bool found = false;
+
+	if (!memfd_name)
+		return 0;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(entry, &LH_SUS_MEMFD, list) {
+		if (!strcmp(entry->info.target_pathname, memfd_name)) {
+			found = true;
+			break;
+		}
+	}
+	rcu_read_unlock();
+
+	if (found) {
+		SUSFS_LOGI("sus_memfd matched: '%s'\n", memfd_name);
+	}
+	return found;
+}
+
+#endif
+
+
 void susfs_init(void) {
+	/* Build-time check for i_state bit allocation (moved here from header
+	 * to avoid file-scope BUILD_BUG_ON issues in this kernel version) */
+	BUILD_BUG_ON(AS_FLAGS_SUS_MEMFD >= BITS_PER_LONG);
+	
 	SUSFS_LOGI("susfs is initialized! version: " SUSFS_VERSION " \n");
+	
+	/* Register lockdep keys for susfs mutexes */
+	lockdep_register_key(&susfs_lock_class_sus_path);
+	lockdep_register_key(&susfs_lock_class_open_redirect);
+	lockdep_register_key(&susfs_lock_class_sus_kstat);
 }
 
 /* No module exit is needed becuase it should never be a loadable kernel module */

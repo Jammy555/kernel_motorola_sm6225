@@ -374,13 +374,13 @@ void __init ksu_syscall_hook_manager_init(void)
 
 #ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
 	ret = register_trace_sys_enter(ksu_sys_enter_handler, NULL);
-#ifndef CONFIG_KRETPROBES
-	ksu_mark_running_process_locked();
-#endif
 	if (ret) {
 		pr_err("hook_manager: failed to register sys_enter tracepoint: %d\n", ret);
 	} else {
 		pr_info("hook_manager: sys_enter tracepoint registered\n");
+#ifndef CONFIG_KRETPROBES
+		ksu_mark_running_process_locked();
+#endif
 	}
 #endif
 

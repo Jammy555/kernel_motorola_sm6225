@@ -638,6 +638,103 @@ static void s_stop(struct seq_file *m, void *p)
 {
 }
 
+#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+static const char * const ksu_hidden_prefixes[] = {
+	"add_try_umount",
+	"allowed_for_su",
+	"always_allow",
+	"avc_spoof_feature_",
+	"cache_sid",
+	"disable_seccomp",
+	"do_check_safemode",
+	"do_get_allow_list",
+	"do_get_app_profile",
+	"do_get_deny_list",
+	"do_get_feature",
+	"do_get_hook_mode",
+	"do_get_info",
+	"do_get_manager_appid",
+	"do_get_sulog_fd",
+	"do_get_version_tag",
+	"do_get_wrapper_fd",
+	"do_grant_root",
+	"do_manage_mark",
+	"do_new_get_allow_list",
+	"do_new_get_deny_list",
+	"do_nuke_ext4_sysfs",
+	"do_persistent_allow_list",
+	"do_report_event",
+	"do_set_app_profile",
+	"do_set_feature",
+	"do_set_init_pgrp",
+	"do_set_sepolicy",
+	"do_track_throne",
+	"do_uid_granted_root",
+	"do_uid_should_umount",
+	"escape_with_root_profile",
+	"get_pkg_from_apk_path",
+	"is_init_rc",
+	"is_uid_exist",
+	"kernel_adb_root_feature_",
+	"kernel_umount_feature_",
+	"manager_or_root",
+	"mount_list",
+	"mount_list_lock",
+	"my_actor",
+	"my_sel_open_handle_status",
+	"nuke_ext4_sysfs",
+	"on_boot_completed",
+	"on_module_mounted",
+	"only_manager",
+	"only_root",
+	"read_iter_proxy",
+	"read_proxy",
+	"search_manager",
+	"selinux_hide_status_feature_",
+	"setup_groups",
+	"setup_mount_ns",
+	"stop_execve_hook",
+	"stop_init_rc_hook",
+	"stop_input_hook",
+	"su_compat_feature_",
+	"sulog_feature_",
+	"track_throne",
+	"try_umount",
+	"is_manager_",
+	"escape_to_",
+	"setup_selinux",
+	"on_post_fs_data",
+	"handle_sepolicy",
+	"getenforce",
+	"setenforce",
+	"is_zygote",
+};
+
+static inline bool susfs_is_hidden_kallsyms_symbol(const char *name)
+{
+	int i;
+
+	if (strstr(name, "checksum") || strstr(name, "chksum") || strstr(name, "cksum"))
+		return false;
+
+	if (strstr(name, "ksu") ||
+	    strstr(name, "susfs") ||
+	    strstr(name, "kernelsu"))
+		return true;
+
+	if (!strcmp(name, "is_init") || !strncmp(name, "is_init.", 8) ||
+	    !strcmp(name, "path_mount") || !strncmp(name, "path_mount.", 11))
+		return true;
+
+	for (i = 0; i < ARRAY_SIZE(ksu_hidden_prefixes); i++) {
+		if (susfs_starts_with(name, ksu_hidden_prefixes[i]))
+			return true;
+	}
+
+	return false;
+}
+#endif
+
 static int s_show(struct seq_file *m, void *p)
 {
 	void *value;
@@ -646,6 +743,11 @@ static int s_show(struct seq_file *m, void *p)
 	/* Some debugging symbols have no name.  Ignore them. */
 	if (!iter->name[0])
 		return 0;
+
+#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+	if (susfs_is_hidden_kallsyms_symbol(iter->name))
+		return 0;
+#endif
 
 	value = iter->show_value ? (void *)iter->value : NULL;
 
@@ -661,36 +763,8 @@ static int s_show(struct seq_file *m, void *p)
 		seq_printf(m, "%px %c %s\t[%s]\n", value,
 			   type, iter->name, iter->module_name);
 	} else
-#ifndef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
 		seq_printf(m, "%px %c %s\n", value,
 			   iter->type, iter->name);
-#else
-	{
-		if (susfs_starts_with(iter->name, "ksu_") ||
-			susfs_starts_with(iter->name, "__ksu_") ||
-			susfs_starts_with(iter->name, "susfs_") ||
-			susfs_starts_with(iter->name, "ksud") ||
-			susfs_starts_with(iter->name, "is_ksu_") ||
-			susfs_starts_with(iter->name, "is_manager_") ||
-			susfs_starts_with(iter->name, "escape_to_") ||
-			susfs_starts_with(iter->name, "setup_selinux") ||
-			susfs_starts_with(iter->name, "track_throne") ||
-			susfs_starts_with(iter->name, "on_post_fs_data") ||
-			susfs_starts_with(iter->name, "try_umount") ||
-			susfs_starts_with(iter->name, "kernelsu") ||
-			susfs_starts_with(iter->name, "__initcall__kmod_kernelsu") ||
-			susfs_starts_with(iter->name, "apply_kernelsu") ||
-			susfs_starts_with(iter->name, "handle_sepolicy") ||
-			susfs_starts_with(iter->name, "getenforce") ||
-			susfs_starts_with(iter->name, "setenforce") ||
-			susfs_starts_with(iter->name, "is_zygote"))
-		{
-			return 0;
-		}
-		seq_printf(m, "%px %c %s\n", value,
-			   iter->type, iter->name);
-	}
-#endif
 	return 0;
 }
 

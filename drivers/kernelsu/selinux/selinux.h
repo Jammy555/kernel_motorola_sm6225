@@ -76,6 +76,8 @@ bool susfs_is_current_ksu_domain(void);
 void susfs_set_init_sid(void);
 bool susfs_is_current_init_domain(void);
 void susfs_set_priv_app_sid(void);
+void susfs_refresh_sids(void);
+int __init susfs_selinux_callback_init(void);
 extern u32 susfs_zygote_sid;
 #endif
 

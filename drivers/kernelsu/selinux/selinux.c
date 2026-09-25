@@ -351,4 +351,29 @@ void susfs_set_priv_app_sid(void)
 {
     susfs_set_sid(KERNEL_PRIV_APP_DOMAIN, &susfs_priv_app_sid);
 }
+
+/* AVC callback for SELinux policy reload */
+static int susfs_avc_callback(u32 event)
+{
+    if (event == AVC_CALLBACK_RESET) {
+        susfs_refresh_sids();
+    }
+    return 0;
+}
+
+/* Refresh all cached SIDs after SELinux policy reload */
+void susfs_refresh_sids(void)
+{
+    susfs_set_ksu_sid();
+    susfs_set_init_sid();
+    susfs_set_zygote_sid();
+    susfs_set_priv_app_sid();
+    pr_info("susfs: refreshed all cached SIDs after policy reload\n");
+}
+
+/* Register AVC callback for policy reload notifications */
+int __init susfs_selinux_callback_init(void)
+{
+    return avc_add_callback(susfs_avc_callback, AVC_CALLBACK_RESET);
+}
 #endif // #ifdef CONFIG_KSU_SUSFS

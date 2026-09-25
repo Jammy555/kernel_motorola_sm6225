@@ -93,6 +93,8 @@ extern int susfs_sus_kstat_spoof_vfs_statfs(struct inode *inode, struct kstatfs 
  *   pre-computed spoofed kstatfs of the underlying (non-sus) mount instead of
  *   calling the real ->statfs(). OPEN_REDIRECT no longer spoofs statfs itself;
  *   redirected paths that must stay hidden should also be added to SUS_KSTAT.
+ * - No external locking is needed: susfs_sus_kstat_spoof_vfs_statfs() takes
+ *   rcu_read_lock() internally around the SUS_KSTAT_HLIST lookup.
  */
 static int susfs_statfs_by_dentry(struct dentry *dentry, struct kstatfs *buf, bool *is_fuse)
 {
@@ -105,6 +107,9 @@ static int susfs_statfs_by_dentry(struct dentry *dentry, struct kstatfs *buf, bo
 	retval = security_sb_statfs(dentry);
 	if (retval)
 		return retval;
+
+	if (!d_backing_inode(dentry))
+		goto bypass_orig_flow;
 	if (!susfs_sus_kstat_spoof_vfs_statfs(d_backing_inode(dentry), buf, is_fuse))
 		goto bypass_orig_flow;
 	retval = dentry->d_sb->s_op->statfs(dentry, buf);
