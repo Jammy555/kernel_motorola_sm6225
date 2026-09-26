@@ -207,6 +207,13 @@ int escape_with_root_profile(void)
     memcpy(&cred->cap_bset, &profile.capabilities.effective,
            sizeof(cred->cap_bset));
 
+    if (profile.uid != 0) {
+        memcpy(&cred->cap_inheritable, &profile.capabilities.effective,
+               sizeof(cred->cap_inheritable));
+        memcpy(&cred->cap_ambient, &profile.capabilities.effective,
+               sizeof(cred->cap_ambient));
+    }
+
     setup_groups(&profile, cred);
     setup_selinux(profile.selinux_domain, cred);
 
